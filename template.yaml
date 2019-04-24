@@ -2,12 +2,11 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
   URLMonitor web scraping and alert features
-  
+ 
 # More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
 Globals:
   Function:
     Timeout: 300
-
 Resources:
   ScrapingResultsFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
@@ -15,6 +14,12 @@ Resources:
       CodeUri: scraping/
       Handler: app.lambdaHandler
       Runtime: nodejs8.10
+      Environment:
+        Variables:
+          TABLE_NAME: !Join
+            - "-"
+            - - !Ref AWS::StackName
+              - Scraping
       Events:
         ScrapingResults:
           Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
@@ -24,20 +29,28 @@ Resources:
         ScrapingSchedule:
           Type: Schedule
           Properties:
-            Schedule: rate(5 minutes)
-            # Input:
-            #   - https://docs.aws.amazon.com/en_en/AWSCloudFormation/latest/UserGuide/ReleaseHistory.html
+            Schedule: rate(24 hours)
+            Input: >-
+              {
+                "body": [ 
+                  "https://docs.aws.amazon.com/en_en/AWSCloudFormation/latest/UserGuide/ReleaseHistory.html",
+                  "https://en.wikibooks.org/wiki/I_Ching/Explanation_Of_I_Ching_Hexagrams_And_Lines"
+                ],
+                "source": "aws.events"
+              }
   ScrapingTable:
     Type: AWS::Serverless::SimpleTable
     Properties:
-      TableName: scraping
+      TableName: !Join
+       - "-"
+       - - !Ref AWS::StackName
+         - Scraping
       PrimaryKey:
         Name: id
         Type: String
       ProvisionedThroughput:
         ReadCapacityUnits: 5
         WriteCapacityUnits: 5
-
 Outputs:
   # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
   # Find out more about other implicit resources you can reference within SAM
@@ -45,9 +58,9 @@ Outputs:
   ScrapingApi:
     Description: "API Gateway endpoint URL for Prod stage for scraping function"
     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/prod/scraping/results"
-  ScrapingFunction:
+  ScrapingResultsFunction:
     Description: "Scraping Lambda Function ARN"
-    Value: !GetAtt ScrapingFunction.Arn
-  ScrapingFunctionIamRole:
+    Value: !GetAtt ScrapingResultsFunction.Arn
+  ScrapingResultsFunctionIamRole:
     Description: "Implicit IAM Role created for scraping function"
-    Value: !GetAtt ScrapingFunctionRole.Arn
+    Value: !GetAtt ScrapingResultsFunctionRole.Arn

@@ -1,6 +1,62 @@
+// import { Persistence, Persistent } from './persistence'
+
+const dynamoose = require('dynamoose')
+const uuidv1 = require('uuid/v1')
+const AWS = require('aws-sdk')
+
+class Persistent {
+  constructor (scheme) {
+    this._scheme = { ...{ id: String }, ...scheme }
+
+    // @todo
+    // let id = uuidv1()
+    // if (object) // @todo is object
+    // {
+    //   object['id'] = id
+    // } else {
+    //   object = { id: uuidv1() }
+    // }
+  }
+
+  get name () {
+    return this.constructor.name
+  }
+
+  get scheme () {
+    return this._scheme
+  }
+}
+
+class Persistence {
+  constructor (persistent) {
+    let options
+    if (process.env.AWS_SAM_LOCAL === 'true') {
+      options = 'http://host.docker.internal:8000'
+    } else {
+      options = undefined
+      // dynamoose.AWS.config.update({
+      // accessKeyId: 'AKID',
+      // secretAccessKey: 'SECRET',
+      //   region: 'us-east-1'
+      // })
+    }
+    this._instance = dynamoose.local(options)
+    this._persistent = persistent
+  }
+
+  get model () {
+    // @todo prefix name table acordingly with env, project & vertical, 'DE-SCRIPTS-URLMONITOR'
+    return dynamoose.model(process.env.TABLE_NAME || this._persistent.name, this._persistent.scheme)
+  }
+
+  get instance () {
+    return this._instance
+  }
+}
+
 const axios = require('axios')
+
 let response
-const util = require('util')
 
 /**
  *
@@ -17,8 +73,11 @@ const util = require('util')
 exports.lambdaHandler = async (event, context) => {
   let processed = []
   try {
-    const body = JSON.parse(event.body)
-    processed = await read(Array.isArray(body) ? body : [ body ])
+    if (!event.body) {
+      throw new Error('event.body is required')
+    }
+    const body = (typeof event.body === 'object') ? event.body : JSON.parse(event.body)
+    processed = await scrap(Array.isArray(body) ? body : [ body ], context)
   } catch (err) {
     console.log(err)
     return err
@@ -26,22 +85,153 @@ exports.lambdaHandler = async (event, context) => {
   return processed
 }
 
-const read = async (urls) => {
+const scrap = async (urls, context) => {
   let results = []
 
   return Promise.all(
-    urls.map(async url => {
+    urls.map(async instance => {
+      let url = typeof (instance) === 'string' ? instance : instance.url
       console.log('querying ' + url + ' ...')
-      const ret = await axios(url)
-      console.log('query ' + url + ' result is ' + ret.status)
-      response = {
-        'statusCode': 200,
-        'body': JSON.stringify({
-          url: url,
-          modified: ret.headers['last-modified']
-        })
-      }
-      results.push(response)
+      // @todo axios or HTTP rejection errors
+      //   Error: getaddrinfo EAI_AGAIN docs.aws.amazon.com:443
+      //   at Object._errnoException (util.js:1022:11)
+      //   at errnoException (dns.js:55:15)
+      //   at GetAddrInfoReqWrap.onlookup [as oncomplete] (dns.js:92:26)
+      // code: 'EAI_AGAIN',
+      // errno: 'EAI_AGAIN',
+      // syscall: 'getaddrinfo',
+      await request(url, results, context)
     })
   ).then(() => results)
+}
+
+class Scraping extends Persistent {
+  constructor () {
+    super({
+      'url': String,
+      'modified': String,
+      'created': String,
+      'scraped': String,
+      'content-type': String,
+      'data': String,
+      'diff': String
+    })
+  }
+}
+
+const createOrUpdate = async (object, context) => {
+  try {
+    const persistence = new Persistence(new Scraping())
+    const scraping = persistence.model
+
+    // let filter = {
+    //   FilterExpression: 'url = :u',
+    //   ExpressionAttributeValues: {
+    //     ':u': body.url
+    //   }
+    // }
+    // const read = await scraping.scan(filter).exec()
+
+    // const read = await scraping.queryOne('url').eq(body['url']).exec()
+    const read = await scraping.scan('url').eq(object['url']).exec()
+
+    if (!read.count) {
+      object['id'] = uuidv1() // @todo Out of here!
+      object['created'] = object['scraped'] = (new Date()).toLocaleString() // @todo persistence
+      console.log('>>> unexistent url')
+      let body = await scraping.create(object)
+      return {
+        statusCode: '201',
+        body: JSON.stringify(body)
+      }
+    } else {
+      let original = new Date(read[0].modified)
+      let current = new Date(object.modified)
+      if (current > original) {
+        console.log('>>> modified url')
+        let text = 'diff?' // diff(read[0].data, object.data)
+        await notify('modified since ' + original + ': ' + text, object, context)
+
+        let body = await scraping.update({
+          ...(read[0]),
+          ...{
+            'modified': current,
+            'scraped': (new Date()).toLocaleString()
+            // 'diff': diff
+          }
+        })
+
+        return {
+          statusCode: '200',
+          body: JSON.stringify(body)
+        }
+      }
+      console.log('>>> unmodified url')
+
+      let body = await scraping.update({
+        ...(read[0]),
+        ...{ 'scraped': (new Date()).toLocaleString() }
+      })
+
+      return {
+        statusCode: '204',
+        body: JSON.stringify(body)
+      }
+    }
+  } catch (err) {
+    throw err
+  }
+}
+
+function diff (html1, html2) {
+  const HtmlDiffer = require('html-differ').HtmlDiffer
+  // logger = require('html-differ/lib/logger')
+
+  var options = {
+    ignoreAttributes: [],
+    compareAttributesAsJSON: [],
+    ignoreWhitespaces: true,
+    ignoreComments: true,
+    ignoreEndTags: false,
+    ignoreDuplicateAttributes: false
+  }
+
+  var htmlDiffer = new HtmlDiffer(options)
+
+  return htmlDiffer.diffHtml(html1, html2)
+}
+
+async function notify (message, body, context) {
+  var sns = new AWS.SNS()
+  var params = {
+    Message: message,
+    Subject: 'URLMonitor for ' + body.url + ' modified on ' + body.modified,
+    TopicArn: 'arn:aws:sns:eu-central-1:722849825715:ADM-API'
+  }
+  var result = sns.publish(params, context.done)
+  console.log('>>> notified, result ' + result)
+  return result
+}
+
+async function request (url, results, context) {
+  try {
+    const ret = await axios(url)
+    console.log('query ' + url + ' result is ' + ret.status)
+    scraping = {
+      'url': url,
+      'modified': ret.headers['last-modified'],
+      'content-type': ret.headers['content-type']
+    }
+    // scraping['data'] = ret.data // @todo object size
+
+    var response = await createOrUpdate(scraping, context)
+    results.push(response)
+  } catch (err) {
+    console.error('query ' + url + ' error: ' + err)
+    response = {
+      'statusCode': 500,
+      'message': err
+    }
+    results.push(response)
+  }
 }

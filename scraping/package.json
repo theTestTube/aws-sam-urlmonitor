@@ -6,10 +6,17 @@
   "author": "theTestTube",
   "license": "MIT",
   "dependencies": {
-    "axios": "^0.18.0"
+    "axios": "^0.18.0",
+    "dynalite": "^2.2.0",
+    "dynamoose": "^1.6.5",
+    "uuid": "^3.3.2",
+    "aws-sdk": "^2.437.0",
+    "html-differ": "^1.4.0"
   },
   "scripts": {
-    "test": "mocha tests/unit/"
+    "test": "mocha tests/unit/",
+    "dynamodb": "docker run -v %cd%:/home/dynamodblocal/data -p 8000:8000 amazon/dynamodb-local -Djava.library.path=./DynamoDBLocal_lib -jar DynamoDBLocal.jar -sharedDb -dbPath ./data",
+    "dynamodb-admin": "node ..\\..\\..\\..\\AppData\\Roaming\\npm\\node_modules\\dynamodb-admin\\bin\\dynamodb-admin.js --open"
   },
   "devDependencies": {
     "chai": "^4.1.2",

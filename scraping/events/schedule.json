@@ -1,12 +1,4 @@
 {
   "body": "[\"https://docs.aws.amazon.com/en_en/AWSCloudFormation/latest/UserGuide/ReleaseHistory.html\", \"https://en.wikibooks.org/wiki/I_Ching/Explanation_Of_I_Ching_Hexagrams_And_Lines\"]",
-  "schedule": "rate(5 minutes)",
-  "requestContext": {
-    "accountId": "123456789012",
-    "resourceId": "123456",
-    "stage": "prod",
-    "requestId": "c6af9ac6-7b61-11e6-9a41-93e8deadbeef",
-    "requestTime": "09/Apr/2015:12:34:56 +0000",
-    "requestTimeEpoch": 1428582896000
-  }
+  "source": "aws.events"
 }

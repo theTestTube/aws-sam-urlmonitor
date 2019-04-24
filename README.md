@@ -169,6 +169,16 @@ Here are a few things you can try to get more acquainted with building serverles
 
 Next, you can use AWS Serverless Application Repository to deploy ready to use Apps that go beyond scraping samples and learn how authors developed their applications: [AWS Serverless Application Repository main page](https://aws.amazon.com/serverless/serverlessrepo/)
 
+### DynamoDB Administration
+
+``` bash
+npm install dynamodb-admin -g
+export DYNAMO_ENDPOINT=http://localhost:8000
+dynamodb-admin --open
+```
+
+Or better call `npm run-script dynamodb-admin`.
+
 # Appendix
 
 ## Building the project
