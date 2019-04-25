@@ -29,18 +29,14 @@ class Persistent {
 
 class Persistence {
   constructor (persistent) {
-    let options
     if (process.env.AWS_SAM_LOCAL === 'true') {
-      options = 'http://host.docker.internal:8000'
+      this._instance = dynamoose.local('http://host.docker.internal:8000')
     } else {
-      options = undefined
-      // dynamoose.AWS.config.update({
-      // accessKeyId: 'AKID',
-      // secretAccessKey: 'SECRET',
-      //   region: 'us-east-1'
-      // })
+      dynamoose.AWS.config.update({ // @todo really required?
+        region: 'eu-central-1'
+      })
+      this._instance = dynamoose.ddb()
     }
-    this._instance = dynamoose.local(options)
     this._persistent = persistent
   }
 
@@ -140,18 +136,17 @@ const createOrUpdate = async (object, context) => {
       object['created'] = object['scraped'] = (new Date()).toLocaleString() // @todo persistence
       console.log('>>> unexistent url')
       let body = await scraping.create(object)
+      await notify('created scraping, modified on ' + object.modified + ', ' + object.url, object, context)
       return {
         statusCode: '201',
         body: JSON.stringify(body)
       }
     } else {
-      let original = new Date(read[0].modified)
-      let current = new Date(object.modified)
+      const original = new Date(read[0].modified)
+      const current = new Date(object.modified)
       if (current > original) {
         console.log('>>> modified url')
-        let text = 'diff?' // diff(read[0].data, object.data)
-        await notify('modified since ' + original + ': ' + text, object, context)
-
+        // let text = 'diff?' // diff(read[0].data, object.data)
         let body = await scraping.update({
           ...(read[0]),
           ...{
@@ -160,7 +155,7 @@ const createOrUpdate = async (object, context) => {
             // 'diff': diff
           }
         })
-
+        await notify('updated scraping, modified on ' + current + ' since ' + original + ', ' + object.url, object, context)
         return {
           statusCode: '200',
           body: JSON.stringify(body)
@@ -201,12 +196,27 @@ function diff (html1, html2) {
   return htmlDiffer.diffHtml(html1, html2)
 }
 
+function config (context) {
+  if (context.invokedFunctionArn) {
+    return {
+      region: context.invokedFunctionArn.split(':')[3],
+      accountId: context.invokedFunctionArn.split(':')[4]
+    }
+  }
+
+  return {
+    region: 'us-east-1',
+    accountId: ''
+  }
+}
+
 async function notify (message, body, context) {
   var sns = new AWS.SNS()
+  var aws = config(context)
   var params = {
-    Message: message,
-    Subject: 'URLMonitor for ' + body.url + ' modified on ' + body.modified,
-    TopicArn: 'arn:aws:sns:eu-central-1:722849825715:ADM-API'
+    Message: message + '\n\n--\n' + JSON.stringify(body),
+    Subject: 'URLMonitor for ' + body.id + ' modified on ' + body.modified,
+    TopicArn: 'arn:aws:sns:' + aws.region + ':' + aws.accountId + ':' + process.env.TOPIC
   }
   var result = sns.publish(params, context.done)
   console.log('>>> notified, result ' + result)

@@ -7,6 +7,12 @@ Description: >
 Globals:
   Function:
     Timeout: 300
+Parameters:
+  Topic: 
+    Type: String
+    Description: SNS Topic name for alert on changes
+    AllowedPattern: "([A-Za-z_][A-Za-z0-9\\-_]{0,255})+"
+    Default: URLMonitor
 Resources:
   ScrapingResultsFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
@@ -14,12 +20,15 @@ Resources:
       CodeUri: scraping/
       Handler: app.lambdaHandler
       Runtime: nodejs8.10
+      Layers:
+        - !Ref ScrapingDependencies
       Environment:
         Variables:
           TABLE_NAME: !Join
             - "-"
             - - !Ref AWS::StackName
               - Scraping
+          TOPIC: !Ref Topic
       Events:
         ScrapingResults:
           Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
@@ -38,6 +47,37 @@ Resources:
                 ],
                 "source": "aws.events"
               }
+      Policies:
+        - Statement:
+          - Sid: DynamoDBPolicy
+            Effect: Allow
+            Action:
+              - dynamodb:*
+            Resource: !Join
+              - "/"
+              - - !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table"
+                - !Join
+                  - "-"
+                  - - !Ref AWS::StackName
+                    - Scraping
+          - Sid: SNSPolicy
+            Effect: Allow
+            Action:
+              - sns:Publish
+            Resource: !Join
+              - ":"
+              - - !Sub "arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}"
+                - !Ref Topic
+  ScrapingDependencies:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: sam-app-dependencies
+      Description: Dependencies for sam app [Scraping]
+      ContentUri: dependencies/
+      CompatibleRuntimes:
+        - nodejs8.10
+      LicenseInfo: 'MIT'
+      RetentionPolicy: Retain              
   ScrapingTable:
     Type: AWS::Serverless::SimpleTable
     Properties:

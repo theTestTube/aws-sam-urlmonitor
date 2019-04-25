@@ -2,8 +2,10 @@
 
 ## Features
 
-- [ ] Get notified by mail on HTTP URL content update 
-    - [ ] detecting changes on `last-modified` response header
+- [x] Get notified by mail (SNS) on HTTP URL content update 
+    - [x] detecting changes on `last-modified` response header
+    - [ ] detecting changes on body size
+    - [ ] detecting changes on body checksum
 
 ## Geting started
 
@@ -17,10 +19,12 @@
 │   │   └── schedule.json       <-- Schedule Integration
 │   │   └── event.json          <-- API Gateway Proxy Integration
 │   └── app.js                  <-- Lambda function code
-│   └── package.json            <-- NodeJS dependencies and scripts
 │   └── tests                   <-- Unit tests
 │       └── unit
 │           └── test-handler.js
+├── dependencies                <-- Layer source code for lambda function
+│   └── nodejs                  <-- NodeJS layer runtime
+│       └── package.json        <-- NodeJS dependencies and scripts
 ├── template.yaml               <-- SAM template
 ```
 
@@ -29,11 +33,14 @@
 * AWS CLI already configured with Administrator permission
 * [NodeJS 8.10+ installed](https://nodejs.org/en/download/)
 * [Docker installed](https://www.docker.com/community-edition)
-* [DynamoDB locally running](https://docs.aws.amazon.com/es_es/amazondynamodb/latest/developerguide/DynamoDBLocal.Docker.html) with `docker run -p 8000:8000 amazon/dynamodb-local`
+* [AWS DynamoDB locally running](https://docs.aws.amazon.com/es_es/amazondynamodb/latest/developerguide/DynamoDBLocal.Docker.html) with `docker run -p 8000:8000 amazon/dynamodb-local`
+* AWS SNS topic configured
 
 ## Setup process
 
 ### Local development
+
+⚠️ SNS notification isn't effective under local development.
 
 **Invoking function locally using a local sample payload**
 
@@ -71,7 +78,7 @@ Events:
 
 ## Packaging and deployment
 
-AWS Lambda NodeJS runtime requires a flat folder with all dependencies including the application. SAM will use `CodeUri` property to know where to look up for both application and dependencies:
+AWS Lambda NodeJS runtime requires a flat folder including the application. SAM will use `CodeUri` property to know where to look up the application:
 
 ```yaml
 ...
@@ -79,7 +86,17 @@ AWS Lambda NodeJS runtime requires a flat folder with all dependencies including
         Type: AWS::Serverless::Function
         Properties:
             CodeUri: scraping/
-            ...
+            # ...
+```
+
+A layer provieds NodeJS runtime with all dependencies. SAM will use `ContentUri` property to know where to look up for dependencies:
+
+```yaml
+...
+    ScrapingDependencies:
+        Type: AWS::Serverless::LayerVersion
+        Properties:
+            ContentUri: dependencies/
 ```
 
 Firstly, we need a `S3 bucket` where we can upload our Lambda functions packaged as ZIP before we deploy anything - If you don't have a S3 bucket to store code artifacts then this is a good time to create one:
@@ -104,6 +121,17 @@ sam deploy \
     --template-file packaged.yaml \
     --stack-name DE-SCRIPTS-URLMONITOR \
     --capabilities CAPABILITY_IAM
+```
+
+If you want to use a `SNS_TOPIC` different of default (`URLMonitor`), you can specify it at deployment time.
+
+```bash
+SNS_TOPIC=mytopic
+sam deploy \
+    --template-file packaged.yaml \
+    --stack-name DE-SCRIPTS-URLMONITOR \
+    --capabilities CAPABILITY_IAM \
+    --parameter-overrides Topic=$SNS_TOPIC
 ```
 
 > **See [Serverless Application Model (SAM) HOWTO Guide](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-quick-start.html) for more details in how to get started.**
