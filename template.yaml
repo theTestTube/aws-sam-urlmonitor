@@ -8,11 +8,26 @@ Globals:
   Function:
     Timeout: 300
 Parameters:
+  Environment: 
+    Type: String
+    Description: Environment identifier
+    AllowedPattern: "([a-z][a-z0-9]{0,14})+"
+    Default: dev
   Topic: 
     Type: String
     Description: SNS Topic name for alert on changes
     AllowedPattern: "([A-Za-z_][A-Za-z0-9\\-_]{0,255})+"
     Default: URLMonitor
+  Bucket:
+    Type: String
+    Description: S3 bucket to persist scraping results
+    Default: ''
+  BucketKey:
+    Type: String
+    Description: S3 bucket key to persist response body
+    Default: scraping
+Conditions:
+  BucketUnspecified: !Equals [ !Ref Bucket, '' ]
 Resources:
   ScrapingResultsFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
@@ -29,6 +44,8 @@ Resources:
             - - !Ref AWS::StackName
               - Scraping
           TOPIC: !Ref Topic
+          BUCKET: !If [ BucketUnspecified, !Ref ScrapingBucket, !Ref Bucket ]
+          BUCKET_KEY: !Ref BucketKey
       Events:
         ScrapingResults:
           Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
@@ -72,7 +89,7 @@ Resources:
     Type: AWS::Serverless::LayerVersion
     Properties:
       LayerName: sam-app-dependencies
-      Description: Dependencies for sam app [Scraping]
+      Description: Dependencies for Scraping sam app
       ContentUri: dependencies/
       CompatibleRuntimes:
         - nodejs8.10
@@ -91,6 +108,46 @@ Resources:
       ProvisionedThroughput:
         ReadCapacityUnits: 5
         WriteCapacityUnits: 5
+  ScrapingBucket:
+    Condition: BucketUnspecified
+    DeletionPolicy: Retain
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      AccessControl: Private
+      BucketName: !Join [ '-', [ urlmonitor, !Ref Environment, !Ref 'AWS::AccountId' ] ]
+      Tags:
+        - Key: Description
+          Value: S3 bucket for URLMonitor to persist scraping results
+  ScrapingBucketPolicy: 
+    Condition: BucketUnspecified
+    Type: "AWS::S3::BucketPolicy"
+    Properties: 
+      Bucket: !Ref ScrapingBucket
+      PolicyDocument:
+        Version: "2008-10-17"
+        Statement:
+        - Sid: "scraping-bucket-access"
+          Effect: Allow
+          Principal:
+            AWS: 
+              - !GetAtt ScrapingResultsFunctionRole.Arn
+          Action: 
+            - s3:ListBucket
+            - s3:GetBucketAcl
+            - s3:GetBucketLocation
+            - s3:GetBucketPolicy
+          Resource: arn:aws:s3:::urlmonitor-dev-722849825715
+        # - Sid: "scraping-content-access"
+        #   Effect: Allow
+        #   Principal: 
+        #     AWS: 
+        #       - !GetAtt ScrapingResultsFunctionRole.Arn
+        #   Action: 
+        #     - s3:DeleteObject
+        #     - s3:GetObject
+        #     - s3:PutObject
+        #     - s3:PutObjectTagging
+        #   Resource: !GetAtt ScrapingBucket.Arn
 Outputs:
   # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
   # Find out more about other implicit resources you can reference within SAM
