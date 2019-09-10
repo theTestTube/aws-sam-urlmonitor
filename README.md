@@ -6,6 +6,9 @@
     - [x] detecting changes on `last-modified` response header
     - [ ] detecting changes on body size
     - [ ] detecting changes on body checksum
+    - [ ] text difference on notification (attached to?)
+
+- [ ] Specify change minimum period per URL, so if request response `last-modified` is too recent no scraping results
 
 ## Geting started
 
