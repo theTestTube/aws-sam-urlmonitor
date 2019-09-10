@@ -3,6 +3,11 @@
 const dynamoose = require('dynamoose')
 const uuidv1 = require('uuid/v1')
 const AWS = require('aws-sdk')
+const URL = require('url').URL
+const { crc32 } = require('crc')
+const fileType = require('file-type')
+const mime = require('mime')
+const sha1 = require('sha1')
 
 class Persistent {
   constructor (scheme) {
@@ -51,8 +56,6 @@ class Persistence {
 }
 
 const axios = require('axios')
-
-let response
 
 /**
  *
@@ -110,6 +113,7 @@ class Scraping extends Persistent {
       'scraped': String,
       'content-type': String,
       'data': String,
+      'crc': String,
       'diff': String
     })
   }
@@ -134,9 +138,11 @@ const createOrUpdate = async (object, context) => {
     if (!read.count) {
       object['id'] = uuidv1() // @todo Out of here!
       object['created'] = object['scraped'] = (new Date()).toLocaleString() // @todo persistence
+      object['crc'] = crc32(object['data']).toString(16)
+      object['data'] = await upload(object, { mime: object['content-type'] })
       console.log('>>> unexistent url')
       let body = await scraping.create(object)
-      await notify('created scraping, modified on ' + object.modified + ', ' + object.url, object, context)
+      await notify('created scraping, modified on ' + object.modified + ' with crc ' + object.crc + ', ' + object.url, object, context)
       return {
         statusCode: '201',
         body: JSON.stringify(body)
@@ -144,18 +150,32 @@ const createOrUpdate = async (object, context) => {
     } else {
       const original = new Date(read[0].modified)
       const current = new Date(object.modified)
-      if (current > original) {
-        console.log('>>> modified url')
+      const crc = crc32(object.data).toString(16)
+
+      if (current > original || read[0].crc !== crc) {
+        var message = ''
+        if (current > original) {
+          console.log('>>> modified url')
+          message = message + 'modified on ' + current + ' since ' + original + ', '
+        }
+        if (read[0].crc !== crc) {
+          console.log('>>> crc changed for url data')
+          message = message + 'with crc ' + crc + ' distinct of ' + read[0].crc + ', '
+        }
         // let text = 'diff?' // diff(read[0].data, object.data)
+        var url = await upload(read[0], { mime: object['content-type'] }, object.data)
         let body = await scraping.update({
           ...(read[0]),
           ...{
             'modified': current,
-            'scraped': (new Date()).toLocaleString()
+            'scraped': (new Date()).toLocaleString(),
+            'crc': crc,
+            'data': url,
+            'content-type': object['content-type']
             // 'diff': diff
           }
         })
-        await notify('updated scraping, modified on ' + current + ' since ' + original + ', ' + object.url, object, context)
+        await notify('updated scraping, ' + message + object.url, object, context)
         return {
           statusCode: '200',
           body: JSON.stringify(body)
@@ -176,6 +196,28 @@ const createOrUpdate = async (object, context) => {
   } catch (err) {
     throw err
   }
+}
+
+const upload = async (object, options, data) => {
+  const s3 = new AWS.S3()
+
+  let buffer = Buffer.from(data || object.data, 'utf-8')
+  let type = (options && options.mime)
+    ? { ext: mime.getExtension(options.mime), mime: options.mime }
+    : fileType(buffer)
+
+  // @todo Default extension is 'html'... || { ext: 'html', mime: 'text/html; charset=utf8' }
+
+  if (!type) {
+    throw new Error('Could not identify a file type')
+  }
+
+  let file = getFile(object.id, type, buffer)
+  let params = file.params
+  let put = await s3.putObject(params)
+  console.log('>>> s3 object was put ' + put)
+
+  return file.path // 'about:' + object.id
 }
 
 function diff (html1, html2) {
@@ -213,9 +255,11 @@ function config (context) {
 async function notify (message, body, context) {
   var sns = new AWS.SNS()
   var aws = config(context)
+
+  const url = new URL(body.url)
   var params = {
-    Message: message + '\n\n--\n' + JSON.stringify(body),
-    Subject: 'URLMonitor for ' + body.id + ' modified on ' + body.modified,
+    Message: message, // + '\n\n--\n' + JSON.stringify(body)
+    Subject: 'URLMonitor for ' + url.hostname + ' modified on ' + body.modified,
     TopicArn: 'arn:aws:sns:' + aws.region + ':' + aws.accountId + ':' + process.env.TOPIC
   }
   var result = sns.publish(params, context.done)
@@ -225,12 +269,13 @@ async function notify (message, body, context) {
 
 async function request (url, results, context) {
   try {
-    const ret = await axios(url)
+    const ret = await axios(url) // { baseURL: url, responseType: 'arraybuffer' } ?
     console.log('query ' + url + ' result is ' + ret.status)
-    scraping = {
+    var scraping = {
       'url': url,
       'modified': ret.headers['last-modified'],
-      'content-type': ret.headers['content-type']
+      'content-type': ret.headers['content-type'],
+      'data': ret.data
     }
     // scraping['data'] = ret.data // @todo object size
 
@@ -243,5 +288,36 @@ async function request (url, results, context) {
       'message': err
     }
     results.push(response)
+  }
+}
+
+let getFile = function (id, mime, buffer) {
+  let bucket = process.env.BUCKET || 'urlmonitor-dev-722849825715' // @todo parametrize
+
+  let hash = sha1(Buffer.from(new Date().toString()))
+  // let now = moment().format('YYY-MM-DD HH:mm:ss')
+
+  // @todo Versioned bucket || friendly key like hostname || ...
+  let path = (process.env.BUCKET_KEY ? (process.env.BUCKET_KEY + '/') : '') + hash + '/'
+  let name = id + '.' + mime.ext
+  let fullName = path + name
+  let fullPath = bucket + '/' + fullName
+
+  let params = {
+    Bucket: bucket,
+    Key: fullName,
+    Body: buffer
+  }
+
+  let file = {
+    size: buffer.toString('ascii').length,
+    type: mime.mime,
+    name: name,
+    path: fullPath
+  }
+
+  return {
+    'params': params,
+    'file': file
   }
 }

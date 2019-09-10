@@ -11,12 +11,16 @@
     "dynamoose": "^1.6.5",
     "uuid": "^3.3.2",
     "aws-sdk": "^2.437.0",
-    "html-differ": "^1.4.0"
+    "html-differ": "^1.4.0",
+    "crc": "^3.8.0",
+    "file-type": "^11.0.0",
+    "mime": "^2.4.2",
+    "sha1": "^1.1.1"
   },
   "scripts": {
     "test": "mocha tests/unit/",
-    "dynamodb": "docker run -v %cd%:/home/dynamodblocal/data -p 8000:8000 amazon/dynamodb-local -Djava.library.path=./DynamoDBLocal_lib -jar DynamoDBLocal.jar -sharedDb -dbPath ./data",
-    "dynamodb-admin": "node ..\\..\\..\\..\\AppData\\Roaming\\npm\\node_modules\\dynamodb-admin\\bin\\dynamodb-admin.js --open"
+    "dynamodb": "docker run -v $(pwd)/data -p 8000:8000 amazon/dynamodb-local -Djava.library.path=./DynamoDBLocal_lib -jar DynamoDBLocal.jar -sharedDb -dbPath ./data",
+    "dynamodb-admin": "node ..\\..\\..\\..\\..\\AppData\\Roaming\\npm\\node_modules\\dynamodb-admin\\bin\\dynamodb-admin.js --open"
   },
   "devDependencies": {
     "chai": "^4.1.2",
