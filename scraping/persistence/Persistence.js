@@ -14,7 +14,7 @@ export default class Persistence {
     //   secretAccessKey: 'SECRET',
     //   region: 'us-east-1'
     // });
-    this.instance = dynamoose.local('http://host.docker.internal:8000') // This defaults to "http://localhost:8000"
+    this.instance = dynamoose.local(process.env.DYNAMO_ENDPOINT)
   }
 
   get instance () {
