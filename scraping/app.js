@@ -35,7 +35,7 @@ class Persistent {
 class Persistence {
   constructor (persistent) {
     if (process.env.AWS_SAM_LOCAL === 'true') {
-      this._instance = dynamoose.local('http://host.docker.internal:8000')
+      this._instance = dynamoose.local(process.env.DYNAMO_ENDPOINT)
     } else {
       dynamoose.AWS.config.update({ // @todo really required?
         region: 'eu-central-1'
@@ -151,14 +151,16 @@ const createOrUpdate = async (object, context) => {
       const original = new Date(read[0].modified)
       const current = new Date(object.modified)
       const crc = crc32(object.data).toString(16)
+      const datediff = current > original
+      const contentdiff = read[0].crc !== crc
 
-      if (current > original || read[0].crc !== crc) {
+      if (datediff || contentdiff) {
         var message = ''
-        if (current > original) {
+        if (datediff) {
           console.log('>>> modified url')
           message = message + 'modified on ' + current + ' since ' + original + ', '
         }
-        if (read[0].crc !== crc) {
+        if (contentdiff) {
           console.log('>>> crc changed for url data')
           message = message + 'with crc ' + crc + ' distinct of ' + read[0].crc + ', '
         }

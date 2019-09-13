@@ -7,6 +7,9 @@ Description: >
 Globals:
   Function:
     Timeout: 300
+    Environment:
+      Variables:
+        DYNAMO_ENDPOINT: !Ref DynamoDBEndpoint
 Parameters:
   Environment: 
     Type: String
@@ -26,6 +29,10 @@ Parameters:
     Type: String
     Description: S3 bucket key to persist response body
     Default: scraping
+  DynamoDBEndpoint:
+    Type: String
+    Description: DynamoDB URL, only useful when running with SAM local
+    Default: http://host.docker.internal:8000
 Conditions:
   BucketUnspecified: !Equals [ !Ref Bucket, '' ]
 Resources:
