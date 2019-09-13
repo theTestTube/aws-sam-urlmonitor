@@ -4,31 +4,32 @@
 
 - [x] Get notified by mail (SNS) on HTTP URL content update 
     - [x] detecting changes on `last-modified` response header
-    - [ ] detecting changes on body size
-    - [ ] detecting changes on body checksum
+    - [x] detecting changes on body checksum (crc)
     - [ ] text difference on notification (attached to?)
+    - [ ] create SNS topic subscription from an e-mail address
 
-- [ ] Specify change minimum period per URL, so if request response `last-modified` is too recent no scraping results
+- [ ] Specify change minimum period per URL, so if request response `last-modified` is too recent no scraping results are produced
 
-## Geting started
+## Getting started
 
-```bash
+``` text
 .
 ├── README.MD                   <-- This instructions file
-├── scraping                    <-- Source code for a lambda function
-│   └── events                  <-- Lambda function input event payloads
-│   │   └── create.json         <-- API Gateway Integration, create
-│   │   └── read.json           <-- API Gateway Integration, read
-│   │   └── schedule.json       <-- Schedule Integration
+├── scraping                    <-- Source code for a Lambda function
+│   ├── events                  <-- Function input event payloads
+│   │   ├── create.json         <-- API Gateway Integration, create
+│   │   ├── read.json           <-- API Gateway Integration, read
+│   │   ├── schedule.json       <-- Schedule Integration
 │   │   └── event.json          <-- API Gateway Proxy Integration
-│   └── app.js                  <-- Lambda function code
-│   └── tests                   <-- Unit tests
-│       └── unit
-│           └── test-handler.js
-├── dependencies                <-- Layer source code for lambda function
+│   ├── app.js                  <-- Function code
+│   ├── tests                   <-- Unit tests
+│   │   └── unit
+│   │       └── test-handler.js
+│   └── package.json            <-- NodeJS scripts
+├── dependencies                <-- Layer source code for Lambda function
 │   └── nodejs                  <-- NodeJS layer runtime
-│       └── package.json        <-- NodeJS dependencies and scripts
-├── template.yaml               <-- SAM template
+│       └── package.json        <-- NodeJS dependencies
+└── template.yaml               <-- SAM template
 ```
 
 ## Requirements
@@ -41,6 +42,28 @@
 
 ## Setup process
 
+### Building the project
+
+The very first time or whenever you make changes to your dependency manifest install your NodeJS modules as usual:
+
+```bash
+cd dependencies/nodejs
+npm install
+```
+
+[AWS Lambda requires a flat folder](https://docs.aws.amazon.com/lambda/latest/dg/nodejs-create-deployment-pkg.html) with the application as well as its dependencies in a `node_modules` folder. When you make changes to your source code run the following command to build your project local for testing and deployment:
+
+```bash
+sam build
+```
+
+If your dependencies contain native modules that need to be compiled specifically for the operating system running on AWS Lambda, use this command to build inside a Lambda-like Docker container instead:
+```bash
+sam build --use-container
+```
+
+By default, this command writes built artifacts to `.aws-sam/build` folder.
+
 ### Local development
 
 ⚠️ SNS notification isn't effective under local development.
@@ -49,6 +72,11 @@
 
 ```bash
 sam local invoke ScrapingResultsFunction --event scraping/events/read.json
+```
+
+**Invoking function locally using a different DynamoDB URL (my docker-machine doesn't support host.docker.internal hostname)**
+```bash
+sam local invoke ScrapingResultsFunction --event scraping/events/read.json --parameter-overrides "ParameterKey=DynamoDBEndpoint,ParameterValue=http://192.168.99.100:8000"
 ```
  
 **Invoking function locally through local API Gateway**
@@ -105,7 +133,8 @@ A layer provieds NodeJS runtime with all dependencies. SAM will use `ContentUri`
 Firstly, we need a `S3 bucket` where we can upload our Lambda functions packaged as ZIP before we deploy anything - If you don't have a S3 bucket to store code artifacts then this is a good time to create one:
 
 ```bash
-aws s3 mb s3://BUCKET_NAME
+BUCKET_NAME=thetesttube-artifacts
+aws s3 mb s3://$BUCKET_NAME
 ```
 
 Next, run the following command to package our Lambda function to S3:
@@ -113,7 +142,7 @@ Next, run the following command to package our Lambda function to S3:
 ```bash
 sam package \
     --output-template-file packaged.yaml \
-    --s3-bucket devops-artifacts-722849825715 \
+    --s3-bucket $BUCKET_NAME \
     --s3-prefix scripts/URLMonitor
 ```
 
@@ -178,29 +207,7 @@ In order to delete our Serverless Application recently deployed you can use the 
 aws cloudformation delete-stack --stack-name DE-SCRIPTS-URLMONITOR
 ```
 
-## Bringing to the next level
-
-Here are a few things you can try to get more acquainted with building serverless applications using SAM:
-
-### Learn how SAM Build can help you with dependencies
-
-* Uncomment lines on `app.js`
-* Build the project with ``sam build --use-container``
-* Invoke with ``sam local invoke ScrapingResultsFunction --event scraping/events/read.json``
-* Update tests
-
-### Create an additional API resource
-
-* Create a catch all resource (e.g. /scraping/results/{proxy+}) and return the name requested through this new path
-* Update tests
-
-### Step-through debugging
-
-* **[Enable step-through debugging docs for supported runtimes]((https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-using-debugging.html))**
-
-Next, you can use AWS Serverless Application Repository to deploy ready to use Apps that go beyond scraping samples and learn how authors developed their applications: [AWS Serverless Application Repository main page](https://aws.amazon.com/serverless/serverlessrepo/)
-
-### DynamoDB Administration
+## DynamoDB Administration
 
 ``` bash
 npm install dynamodb-admin -g
@@ -209,58 +216,3 @@ dynamodb-admin --open
 ```
 
 Or better call `npm run-script dynamodb-admin`.
-
-# Appendix
-
-## Building the project
-
-[AWS Lambda requires a flat folder](https://docs.aws.amazon.com/lambda/latest/dg/nodejs-create-deployment-pkg.html) with the application as well as its dependencies in a node_modules folder. When you make changes to your source code or dependency manifest,
-run the following command to build your project local testing and deployment:
-
-```bash
-sam build
-```
-
-If your dependencies contain native modules that need to be compiled specifically for the operating system running on AWS Lambda, use this command to build inside a Lambda-like Docker container instead:
-```bash
-sam build --use-container
-```
-
-By default, this command writes built artifacts to `.aws-sam/build` folder.
-
-## SAM and AWS CLI commands
-
-All commands used throughout this document
-
-```bash
-# Invoke function locally with scraping/events/read.json as an input
-sam local invoke ScrapingResultsFunction --event scraping/events/read.json
-
-# Run API Gateway locally
-sam local start-api
-
-# Create S3 bucket
-aws s3 mb s3://BUCKET_NAME
-
-# Package Lambda function defined locally and upload to S3 as an artifact
-sam package \
-    --output-template-file packaged.yaml \
-    --s3-bucket REPLACE_THIS_WITH_YOUR_S3_BUCKET_NAME
-
-# Deploy SAM template as a CloudFormation stack
-sam deploy \
-    --template-file packaged.yaml \
-    --stack-name DE-SCRIPTS-URLMONITOR \
-    --capabilities CAPABILITY_IAM
-
-# Describe Output section of CloudFormation stack previously created
-aws cloudformation describe-stacks \
-    --stack-name DE-SCRIPTS-URLMONITOR \
-    --query 'Stacks[].Outputs[?OutputKey==`URLMonitorApi`]' \
-    --output table
-
-# Tail Lambda function Logs using Logical name defined in SAM Template
-sam logs -n ScrapingResultsFunction --stack-name DE-SCRIPTS-URLMONITOR --tail
-```
-
-**NOTE**: Alternatively this could be part of package.json scripts section.
